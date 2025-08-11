@@ -2,11 +2,11 @@
   "IsEncrypted": false,
   "Values": {
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
-    "AZURE_SUBSCRIPTION_ID": "25229114-2ec3-4b44-bb5b-649a554894bc",
+    "AZURE_SUBSCRIPTION_ID": "",
     "RESOURCE_GROUP": "RG-Q2",
-    "AZURE_CLIENT_ID": "0d36f1e1-007f-4730-87a7-75622a744d1e",
-    "AZURE_TENANT_ID": "4e7ca2bc-d00a-4f0b-b95f-dde694a4b4ac",
-    "AZURE_CLIENT_SECRET": "qas8Q~-I_XG4vBRoC~CwRcIaY3C4kIHJCS732aHw",
+    "AZURE_CLIENT_ID": "",
+    "AZURE_TENANT_ID": "",
+    "AZURE_CLIENT_SECRET": "",
     "FUNCTIONS_WORKER_RUNTIME": "node"
   },
   "ConnectionStrings": {}
