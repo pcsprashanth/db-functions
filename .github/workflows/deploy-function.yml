@@ -3,7 +3,7 @@ name: Deploy Azure Function App
 on:
   push:
     branches:
-      - main  # Deploy only when pushing to main branch
+      - main
 
 jobs:
   build-and-deploy:
@@ -21,26 +21,16 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Load Azure credentials
-        run: |
-          echo '${{ secrets.AZURE_CREDENTIALS }}' > creds.json
-          export AZURE_SUBSCRIPTION_ID=$(jq -r .AZURE_SUBSCRIPTION_ID creds.json)
-          export RESOURCE_GROUP=$(jq -r .RESOURCE_GROUP creds.json)
-          export AZURE_CLIENT_ID=$(jq -r .AZURE_CLIENT_ID creds.json)
-          export AZURE_CLIENT_SECRET=$(jq -r .AZURE_CLIENT_SECRET creds.json)
-          export AZURE_TENANT_ID=$(jq -r .AZURE_TENANT_ID creds.json)
-          echo "AZURE_SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION_ID" >> $GITHUB_ENV
-          echo "RESOURCE_GROUP=$RESOURCE_GROUP" >> $GITHUB_ENV
-          echo "AZURE_CLIENT_ID=$AZURE_CLIENT_ID" >> $GITHUB_ENV
-          echo "AZURE_CLIENT_SECRET=$AZURE_CLIENT_SECRET" >> $GITHUB_ENV
-          echo "AZURE_TENANT_ID=$AZURE_TENANT_ID" >> $GITHUB_ENV
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Build Azure Function
         run: npm run build --if-present
 
       - name: Deploy to Azure Functions
-        uses: Azure/functions-action@v1
+        uses: azure/functions-action@v1
         with:
           app-name: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
           package: '.'
