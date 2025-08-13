@@ -66,4 +66,4 @@ jobs:
           app-name: 'DbSqlList'
           slot-name: 'Production'
           package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_365AAE8281DE4FC0B6E85194962A86FE }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_B70C3227D5C649BAA9258EE2CF364A64 }}
