@@ -1,33 +1,49 @@
 const { DefaultAzureCredential } = require("@azure/identity");
 const { SqlManagementClient } = require("@azure/arm-sql");
-const { ResourceManagementClient } = require("@azure/arm-resources");
 
-const subscriptionId = process.env.AZURE_SUBSCRIPTION_ID; // from env or config
+module.exports = async function (context, req) {
+    try {
+        const subscriptionId = process.env.AZURE_SUBSCRIPTION_ID;
+        const resourceGroup = process.env.RESOURCE_GROUP;
 
-async function listSqlServersAndDatabases() {
-  const credential = new DefaultAzureCredential();
+        const credential = new DefaultAzureCredential();
+        const sqlClient = new SqlManagementClient(credential, subscriptionId);
 
-  // Step 1: List all resource groups
-  const resourceClient = new ResourceManagementClient(credential, subscriptionId);
-  const sqlClient = new SqlManagementClient(credential, subscriptionId);
+        let result = [];
 
-  console.log(`Fetching SQL Servers and Databases for subscription: ${subscriptionId}`);
+        // Async iterate over SQL servers in the resource group
+        for await (const server of sqlClient.servers.listByResourceGroup(resourceGroup)) {
+            let dbList = [];
 
-  for await (const rg of resourceClient.resourceGroups.list()) {
-    console.log(`\nResource Group: ${rg.name}`);
+            for await (const db of sqlClient.databases.listByServer(resourceGroup, server.name)) {
+                // Skip the master DB
+                if (db.name.toLowerCase() === 'master') continue;
 
-    // Step 2: List SQL servers in this RG
-    for await (const server of sqlClient.servers.listByResourceGroup(rg.name)) {
-      console.log(`  SQL Server: ${server.name}`);
+                dbList.push({
+                    name: db.name,
+                    status: db.status,
+                    collation: db.collation,
+                    creationDate: db.creationDate
+                });
+            }
 
-      // Step 3: List DBs in this server
-      for await (const db of sqlClient.databases.listByServer(rg.name, server.name)) {
-        console.log(`    Database: ${db.name}`);
-      }
+            result.push({
+                server: server.name,
+                location: server.location,
+                databases: dbList
+            });
+        }
+
+        context.res = {
+            status: 200,
+            body: result
+        };
+
+    } catch (err) {
+        context.log.error("Error listing databases:", err);
+        context.res = {
+            status: 500,
+            body: { error: err.message }
+        };
     }
-  }
-}
-
-listSqlServersAndDatabases().catch((err) => {
-  console.error("Error listing SQL resources:", err);
-});
+};
