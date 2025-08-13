@@ -2,8 +2,6 @@
   "IsEncrypted": false,
   "Values": {
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
-    "RESOURCE_GROUP": "RG-Q2",
-    
     "FUNCTIONS_WORKER_RUNTIME": "node"
   },
   "ConnectionStrings": {}
