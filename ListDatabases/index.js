@@ -1,49 +1,65 @@
 const { DefaultAzureCredential } = require("@azure/identity");
 const { SqlManagementClient } = require("@azure/arm-sql");
+const { ResourceManagementClient } = require("@azure/arm-resources");
 
 module.exports = async function (context, req) {
     try {
-        const subscriptionId = process.env.AZURE_SUBSCRIPTION_ID;
-        const resourceGroup = process.env.RESOURCE_GROUP;
-
         const credential = new DefaultAzureCredential();
+        const subscriptionId = process.env["AZURE_SUBSCRIPTION_ID"];
+
+        const resourceClient = new ResourceManagementClient(credential, subscriptionId);
         const sqlClient = new SqlManagementClient(credential, subscriptionId);
 
-        let result = [];
-
-        // Async iterate over SQL servers in the resource group
-        for await (const server of sqlClient.servers.listByResourceGroup(resourceGroup)) {
-            let dbList = [];
-
-            for await (const db of sqlClient.databases.listByServer(resourceGroup, server.name)) {
-                // Skip the master DB
-                if (db.name.toLowerCase() === 'master') continue;
-
-                dbList.push({
-                    name: db.name,
-                    status: db.status,
-                    collation: db.collation,
-                    creationDate: db.creationDate
-                });
-            }
-
-            result.push({
-                server: server.name,
-                location: server.location,
-                databases: dbList
-            });
+        const rgList = [];
+        for await (const rg of resourceClient.resourceGroups.list()) {
+            rgList.push(rg.name);
         }
 
-        context.res = {
-            status: 200,
-            body: result
-        };
+        const results = [];
 
-    } catch (err) {
-        context.log.error("Error listing databases:", err);
-        context.res = {
-            status: 500,
-            body: { error: err.message }
-        };
+        for (const rgName of rgList) {
+            context.log(`🔍 Checking RG: ${rgName}`);
+
+            try {
+                const serverIterator = sqlClient.servers.listByResourceGroup(rgName);
+                const servers = [];
+                for await (const server of serverIterator) {
+                    servers.push(server);
+                }
+
+                if (servers.length === 0) {
+                    context.log(`ℹ No SQL servers found in RG "${rgName}"`);
+                    continue;
+                }
+
+                for (const server of servers) {
+                    const dbIterator = sqlClient.databases.listByServer(rgName, server.name);
+                    const dbList = [];
+
+                    for await (const db of dbIterator) {
+                        if (db.name.toLowerCase() !== "master") { // exclude master DB
+                            dbList.push(db.name);
+                        }
+                    }
+
+                    results.push({
+                        resourceGroup: rgName,
+                        server: server.name,
+                        fqdn: server.fullyQualifiedDomainName,
+                        databases: dbList
+                    });
+                }
+
+            } catch (err) {
+                context.log(`❌ Error fetching from RG "${rgName}": ${err.message}`);
+            }
+        }
+
+        context.log(`✅ Final Results:`, results);
+        context.res = { status: 200, body: results };
+
+    } catch (error) {
+        context.log.error(error);
+        context.res = { status: 500, body: error.message };
     }
 };
