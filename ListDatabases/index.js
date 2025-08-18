@@ -7,34 +7,35 @@ module.exports = async function (context, req) {
         const credential = new DefaultAzureCredential();
         const subscriptionId = process.env["AZURE_SUBSCRIPTION_ID"];
 
+        if (!subscriptionId) {
+            throw new Error("AZURE_SUBSCRIPTION_ID environment variable is not set.");
+        }
+
         const resourceClient = new ResourceManagementClient(credential, subscriptionId);
         const sqlClient = new SqlManagementClient(credential, subscriptionId);
 
-        // Get all resource groups
+        // Fetch all resource groups
         const rgList = [];
         for await (const rg of resourceClient.resourceGroups.list()) {
             rgList.push(rg.name);
         }
 
+        context.log(`✅ Resource Groups fetched: ${rgList}`);
+
         const results = [];
 
         for (const rgName of rgList) {
-            context.log(`🔍 Checking RG: ${rgName}`);
+            context.log(`🔍 Checking resource group: ${rgName}`);
 
             try {
-                // List all Managed Instances in the RG
+                // List all Managed Instances in the resource group
                 const miIterator = sqlClient.managedInstances.listByResourceGroup(rgName);
-                const managedInstances = [];
+                let foundMI = false;
+
                 for await (const mi of miIterator) {
-                    managedInstances.push(mi);
-                }
+                    foundMI = true;
+                    context.log(`🔹 Found Managed Instance: ${mi.name}`);
 
-                if (managedInstances.length === 0) {
-                    context.log(`ℹ No Managed Instances found in RG "${rgName}"`);
-                    continue;
-                }
-
-                for (const mi of managedInstances) {
                     const dbIterator = sqlClient.managedDatabases.listByManagedInstance(rgName, mi.name);
                     const dbList = [];
 
@@ -52,8 +53,12 @@ module.exports = async function (context, req) {
                     });
                 }
 
+                if (!foundMI) {
+                    context.log(`ℹ No Managed Instances found in RG "${rgName}"`);
+                }
+
             } catch (err) {
-                context.log(`❌ Error fetching MIs from RG "${rgName}": ${err.message}`);
+                context.log.error(`❌ Error fetching Managed Instances from RG "${rgName}": ${err.message}`);
             }
         }
 
@@ -61,7 +66,7 @@ module.exports = async function (context, req) {
         context.res = { status: 200, body: results };
 
     } catch (error) {
-        context.log.error(error);
+        context.log.error("💥 Function failed:", error);
         context.res = { status: 500, body: error.message };
     }
 };
