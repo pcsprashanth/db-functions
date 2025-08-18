@@ -10,6 +10,7 @@ module.exports = async function (context, req) {
         const resourceClient = new ResourceManagementClient(credential, subscriptionId);
         const sqlClient = new SqlManagementClient(credential, subscriptionId);
 
+        // Get all resource groups
         const rgList = [];
         for await (const rg of resourceClient.resourceGroups.list()) {
             rgList.push(rg.name);
@@ -21,37 +22,38 @@ module.exports = async function (context, req) {
             context.log(`🔍 Checking RG: ${rgName}`);
 
             try {
-                const serverIterator = sqlClient.servers.listByResourceGroup(rgName);
-                const servers = [];
-                for await (const server of serverIterator) {
-                    servers.push(server);
+                // List all Managed Instances in the RG
+                const miIterator = sqlClient.managedInstances.listByResourceGroup(rgName);
+                const managedInstances = [];
+                for await (const mi of miIterator) {
+                    managedInstances.push(mi);
                 }
 
-                if (servers.length === 0) {
-                    context.log(`ℹ No SQL servers found in RG "${rgName}"`);
+                if (managedInstances.length === 0) {
+                    context.log(`ℹ No Managed Instances found in RG "${rgName}"`);
                     continue;
                 }
 
-                for (const server of servers) {
-                    const dbIterator = sqlClient.databases.listByServer(rgName, server.name);
+                for (const mi of managedInstances) {
+                    const dbIterator = sqlClient.managedDatabases.listByManagedInstance(rgName, mi.name);
                     const dbList = [];
 
                     for await (const db of dbIterator) {
-                        if (db.name.toLowerCase() !== "master") { // exclude master DB
+                        if (db.name.toLowerCase() !== "master") {
                             dbList.push(db.name);
                         }
                     }
 
                     results.push({
                         resourceGroup: rgName,
-                        server: server.name,
-                        fqdn: server.fullyQualifiedDomainName,
+                        managedInstance: mi.name,
+                        fqdn: mi.fullyQualifiedDomainName,
                         databases: dbList
                     });
                 }
 
             } catch (err) {
-                context.log(`❌ Error fetching from RG "${rgName}": ${err.message}`);
+                context.log(`❌ Error fetching MIs from RG "${rgName}": ${err.message}`);
             }
         }
 
