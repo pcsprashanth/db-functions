@@ -14,13 +14,21 @@ module.exports = async function (context, req) {
         const resourceClient = new ResourceManagementClient(credential, subscriptionId);
         const sqlClient = new SqlManagementClient(credential, subscriptionId);
 
+        context.log("🔹 Testing SP / Credential access to subscription...");
+
+        try {
+            const token = await credential.getToken("https://management.azure.com/.default");
+            context.log("✅ Token acquired successfully (SP credentials working).");
+        } catch (err) {
+            context.log.error("❌ Failed to acquire token with SP:", err.message);
+        }
+
         // Fetch all resource groups
         const rgList = [];
         for await (const rg of resourceClient.resourceGroups.list()) {
             rgList.push(rg.name);
         }
-
-        context.log(`✅ Resource Groups fetched: ${rgList}`);
+        context.log(`✅ Resource Groups fetched: ${rgList.length} -> ${rgList}`);
 
         const results = [];
 
@@ -36,7 +44,8 @@ module.exports = async function (context, req) {
                     foundMI = true;
                     context.log(`🔹 Found Managed Instance: ${mi.name}`);
 
-                    const dbIterator = sqlClient.managedDatabases.listByManagedInstance(rgName, mi.name);
+                    // FIX: Correct method for Managed Instance databases
+                    const dbIterator = sqlClient.managedDatabases.listByInstance(rgName, mi.name);
                     const dbList = [];
 
                     for await (const db of dbIterator) {
@@ -62,7 +71,7 @@ module.exports = async function (context, req) {
             }
         }
 
-        context.log(`✅ Final Results:`, results);
+        context.log(`✅ Final Results: ${results.length} Managed Instances found`);
         context.res = { status: 200, body: results };
 
     } catch (error) {
