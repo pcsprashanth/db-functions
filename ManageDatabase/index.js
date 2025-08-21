@@ -1,7 +1,7 @@
 const sql = require('mssql');
 
 module.exports = async function (context, req) {
-  const server = "20.115.133.39"; // Using resolved IP
+  const server = process.env.SQL_MI_FQDN; // e.g., "free-sql-mi-7475199.1e12b8583323.public.database.windows.net"
   const user = process.env.SQL_MI_USER;
   const password = process.env.SQL_MI_PASSWORD;
   const containerUrl = process.env.BACKUP_CONTAINER_URL; // Base container URL (without SAS)
@@ -26,12 +26,12 @@ module.exports = async function (context, req) {
   const config = {
     user,
     password,
-    server,      // Using IP
+    server,      
     database: 'master', // use master for backup
     port: 3342,  // MI public endpoint port
     options: {
       encrypt: true,
-      trustServerCertificate: false
+      trustServerCertificate: false // set to true for testing with IP if needed
     }
   };
 
