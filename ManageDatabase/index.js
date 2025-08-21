@@ -1,7 +1,7 @@
 const sql = require('mssql');
 
 module.exports = async function (context, req) {
-  const server = process.env.SQL_MI_FQDN;
+  const server = "20.115.133.39";
   const user = process.env.SQL_MI_USER;
   const password = process.env.SQL_MI_PASSWORD;
   const containerUrl = process.env.BACKUP_CONTAINER_URL; // Base container URL (with SAS removed)
