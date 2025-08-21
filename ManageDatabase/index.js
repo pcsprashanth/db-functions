@@ -1,12 +1,12 @@
 const sql = require('mssql');
 
 module.exports = async function (context, req) {
-  const server = "20.115.133.39";
+  const server = "20.115.133.39"; // Using resolved IP
   const user = process.env.SQL_MI_USER;
   const password = process.env.SQL_MI_PASSWORD;
-  const containerUrl = process.env.BACKUP_CONTAINER_URL; // Base container URL (with SAS removed)
+  const containerUrl = process.env.BACKUP_CONTAINER_URL; // Base container URL (without SAS)
   const credentialName = process.env.SQL_CREDENTIAL_NAME;
-  const sasToken = process.env.STORAGE_SAS_TOKEN; // only SAS value (without leading ?)
+  const sasToken = process.env.STORAGE_SAS_TOKEN; // only SAS value
 
   const dbName = req.body?.database;
 
@@ -24,21 +24,21 @@ module.exports = async function (context, req) {
   const blobUrl = `${containerUrl}/${dbName}_${timestamp}.bak`;
 
   const config = {
-  user: process.env.SQL_MI_USER,
-  password: process.env.SQL_MI_PASSWORD,
-  server: process.env.SQL_MI_FQDN,  // e.g. free-sql-mi-7475199.1e12b8583323.public.database.windows.net
-  database: process.env.SQL_MI_DB,  // optional for backup
-  port: 3342,   // 👈 must use 3342 for MI public endpoint
-  options: {
-    encrypt: true,
-    trustServerCertificate: false
-  }
-};
+    user,
+    password,
+    server,      // Using IP
+    database: 'master', // use master for backup
+    port: 3342,  // MI public endpoint port
+    options: {
+      encrypt: true,
+      trustServerCertificate: false
+    }
+  };
 
   try {
     await sql.connect(config);
 
-    // 1. Ensure credential exists (or create it if missing)
+    // 1. Ensure credential exists
     const credentialQuery = `
       IF NOT EXISTS (SELECT * FROM sys.credentials WHERE name = '${credentialName}')
       BEGIN
