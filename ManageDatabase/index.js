@@ -24,15 +24,16 @@ module.exports = async function (context, req) {
   const blobUrl = `${containerUrl}/${dbName}_${timestamp}.bak`;
 
   const config = {
-    user,
-    password,
-    server,
-    database: 'master',
-    options: {
-      encrypt: true,
-      trustServerCertificate: false
-    }
-  };
+  user: process.env.SQL_MI_USER,
+  password: process.env.SQL_MI_PASSWORD,
+  server: process.env.SQL_MI_FQDN,  // e.g. free-sql-mi-7475199.1e12b8583323.public.database.windows.net
+  database: process.env.SQL_MI_DB,  // optional for backup
+  port: 3342,   // 👈 must use 3342 for MI public endpoint
+  options: {
+    encrypt: true,
+    trustServerCertificate: false
+  }
+};
 
   try {
     await sql.connect(config);
