@@ -1,55 +1,74 @@
-const { DefaultAzureCredential } = require("@azure/identity");
-const { SqlManagementClient } = require("@azure/arm-sql");
+const sql = require('mssql');
 
 module.exports = async function (context, req) {
-    const subscriptionId = process.env.AZURE_SUBSCRIPTION_ID;
-    const resourceGroup = req.query.resource_group || process.env.RESOURCE_GROUP;
-    const serverName = req.query.server;
-    const databaseName = req.query.database;
-    const action = req.query.action;
-    const restorePointInTime = req.query.restore_time;
+  const server = process.env.SQL_MI_FQDN;
+  const user = process.env.SQL_MI_USER;
+  const password = process.env.SQL_MI_PASSWORD;
+  const containerUrl = process.env.BACKUP_CONTAINER_URL; // Base container URL (with SAS removed)
+  const credentialName = process.env.SQL_CREDENTIAL_NAME;
+  const sasToken = process.env.STORAGE_SAS_TOKEN; // only SAS value (without leading ?)
 
-    if (!subscriptionId || !resourceGroup || !serverName || !databaseName || !action) {
-        context.res = {
-            status: 400,
-            body: "Missing required parameters: server, database, action"
-        };
-        return;
+  const dbName = req.body?.database;
+
+  if (!dbName || !containerUrl || !credentialName || !sasToken) {
+    context.res = {
+      status: 400,
+      body: "Missing required inputs: 'database' in request body, or environment variables for BACKUP_CONTAINER_URL / SQL_CREDENTIAL_NAME / STORAGE_SAS_TOKEN."
+    };
+    return;
+  }
+
+  // Generate timestamped filename: MyDatabase_20250821_133045.bak
+  const now = new Date();
+  const timestamp = now.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
+  const blobUrl = `${containerUrl}/${dbName}_${timestamp}.bak`;
+
+  const config = {
+    user,
+    password,
+    server,
+    database: 'master',
+    options: {
+      encrypt: true,
+      trustServerCertificate: false
     }
+  };
 
-    try {
-        const credential = new DefaultAzureCredential();
-        const sqlClient = new SqlManagementClient(credential, subscriptionId);
+  try {
+    await sql.connect(config);
 
-        if (action === "delete") {
-            await sqlClient.databases.beginDeleteAndWait(resourceGroup, serverName, databaseName);
-            context.res = { status: 200, body: `Database '${databaseName}' deleted.` };
-        }
-        else if (action === "restore") {
-            if (!restorePointInTime) {
-                context.res = { status: 400, body: "Please provide restore_time in ISO format" };
-                return;
-            }
+    // 1. Ensure credential exists (or create it if missing)
+    const credentialQuery = `
+      IF NOT EXISTS (SELECT * FROM sys.credentials WHERE name = '${credentialName}')
+      BEGIN
+        CREATE CREDENTIAL [${credentialName}]
+        WITH IDENTITY = 'SHARED ACCESS SIGNATURE',
+        SECRET = '${sasToken}';
+      END
+    `;
+    await sql.query(credentialQuery);
 
-            const restoreParams = {
-                location: (await sqlClient.servers.get(resourceGroup, serverName)).location,
-                createMode: "PointInTimeRestore",
-                sourceDatabaseId: `/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Sql/servers/${serverName}/databases/${databaseName}`,
-                restorePointInTime: restorePointInTime
-            };
+    // 2. Perform the backup
+    const backupQuery = `
+      BACKUP DATABASE [${dbName}]
+      TO URL = N'${blobUrl}'
+      WITH CREDENTIAL = '${credentialName}',
+      INIT, COMPRESSION, STATS = 10;
+    `;
+    await sql.query(backupQuery);
 
-            const restoreDbName = `${databaseName}_restored_${Date.now()}`;
-            await sqlClient.databases.beginCreateOrUpdateAndWait(resourceGroup, serverName, restoreDbName, restoreParams);
-            context.res = { status: 200, body: `Database restored as '${restoreDbName}'.` };
-        }
-        else if (action === "backup") {
-            const db = await sqlClient.databases.get(resourceGroup, serverName, databaseName);
-            context.res = { status: 200, body: `Latest backup info: ${JSON.stringify(db, null, 2)}` };
-        }
-        else {
-            context.res = { status: 400, body: "Invalid action. Use delete | restore | backup" };
-        }
-    } catch (err) {
-        context.res = { status: 500, body: err.message || String(err) };
-    }
+    context.res = {
+      status: 200,
+      body: `✅ Backup of '${dbName}' started successfully. File: ${blobUrl}`
+    };
+
+  } catch (err) {
+    context.log.error('❌ Backup failed', err);
+    context.res = {
+      status: 500,
+      body: `Backup failed: ${err.message}`
+    };
+  } finally {
+    await sql.close();
+  }
 };
