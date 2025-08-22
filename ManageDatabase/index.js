@@ -1,75 +1,73 @@
-const sql = require('mssql');
+const sql = require("mssql");
 
 module.exports = async function (context, req) {
-  const server = process.env.SQL_MI_FQDN; // e.g., "free-sql-mi-7475199.1e12b8583323.public.database.windows.net"
-  const user = process.env.SQL_MI_USER;
-  const password = process.env.SQL_MI_PASSWORD;
-  const containerUrl = process.env.BACKUP_CONTAINER_URL; // Base container URL (without SAS)
-  const credentialName = process.env.SQL_CREDENTIAL_NAME;
-  const sasToken = process.env.STORAGE_SAS_TOKEN; // only SAS value
-
-  const dbName = req.body?.database;
-
-  if (!dbName || !containerUrl || !credentialName || !sasToken) {
-    context.res = {
-      status: 400,
-      body: "Missing required inputs: 'database' in request body, or environment variables for BACKUP_CONTAINER_URL / SQL_CREDENTIAL_NAME / STORAGE_SAS_TOKEN."
-    };
-    return;
-  }
-
-  // Generate timestamped filename: MyDatabase_20250821_133045.bak
-  const now = new Date();
-  const timestamp = now.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
-  const blobUrl = `${containerUrl}/${dbName}_${timestamp}.bak`;
-
-  const config = {
-    user,
-    password,
-    server,      
-    database: 'master', // use master for backup
-    port: 3342,  // MI public endpoint port
-    options: {
-      encrypt: true,
-      trustServerCertificate: false // set to true for testing with IP if needed
-    }
-  };
-
   try {
-    await sql.connect(config);
+    // Parameters
+    const dbName = req.query.dbName || req.body?.dbName;
+    const storageAccount = process.env.STORAGE_ACCOUNT; // e.g. mystorageacct
+    const containerName = process.env.STORAGE_CONTAINER; // e.g. backups
+    const sasToken = process.env.STORAGE_SAS; // without leading '?'
+    const backupFile = `${dbName}_${new Date().toISOString().replace(/[:.]/g, "-")}.bak`;
 
-    // 1. Ensure credential exists
-    const credentialQuery = `
-      IF NOT EXISTS (SELECT * FROM sys.credentials WHERE name = '${credentialName}')
+    if (!dbName) {
+      context.res = {
+        status: 400,
+        body: "Missing dbName parameter",
+      };
+      return;
+    }
+
+    // SQL MI connection
+    const pool = await sql.connect({
+      user: process.env.SQL_MI_USER,
+      password: process.env.SQL_MI_PASSWORD,
+      server: process.env.SQL_MI_FQDN, // e.g. free-sql-mi-xxxx.database.windows.net
+      database: "master",
+      options: {
+        encrypt: true,
+        trustServerCertificate: false,
+      },
+    });
+
+    // Define URL to blob
+    const backupUrl = `https://${storageAccount}.blob.core.windows.net/${containerName}/${backupFile}`;
+
+    // Create credential if not exists
+    const credentialName = `https://${storageAccount}.blob.core.windows.net/${containerName}`;
+    const createCredentialSql = `
+      IF NOT EXISTS (
+        SELECT * FROM sys.credentials WHERE name = '${credentialName}'
+      )
       BEGIN
         CREATE CREDENTIAL [${credentialName}]
         WITH IDENTITY = 'SHARED ACCESS SIGNATURE',
-        SECRET = '${sasToken}';
+             SECRET = '${sasToken}';
       END
     `;
-    await sql.query(credentialQuery);
 
-    // 2. Perform the backup
-    const backupQuery = `
+    await pool.request().batch(createCredentialSql);
+
+    // Run COPY_ONLY backup
+    const backupSql = `
       BACKUP DATABASE [${dbName}]
-      TO URL = N'${blobUrl}'
-      WITH CREDENTIAL = '${credentialName}',
-      INIT, COMPRESSION, STATS = 10;
+      TO DISK = '${backupUrl}'
+      WITH COPY_ONLY, COMPRESSION, STATS = 10, CREDENTIAL = '${credentialName}';
     `;
-    await sql.query(backupQuery);
+
+    context.log(`Running backup for database [${dbName}] -> ${backupUrl}`);
+    await pool.request().batch(backupSql);
 
     context.res = {
       status: 200,
-      body: `✅ Backup of '${dbName}' started successfully. File: ${blobUrl}`
+      body: `✅ Backup completed successfully. File: ${backupUrl}`,
     };
-
   } catch (err) {
-    context.log.error('❌ Backup failed', err);
+    context.log.error("❌ Backup failed", err);
     context.res = {
       status: 500,
-      body: `Backup failed: ${err.message}`
+      body: `Backup failed: ${err.message}`,
     };
   } finally {
-    await sql.close();
+    sql.close();
   }
 };
