@@ -21,13 +21,14 @@ module.exports = async function (context, req) {
     const pool = await sql.connect({
       user: process.env.SQL_MI_USER,
       password: process.env.SQL_MI_PASSWORD,
-      server: process.env.SQL_MI_FQDN, // e.g. free-sql-mi-xxxx.database.windows.net
+      server: process.env.SQL_MI_FQDN,
       database: "master",
       options: {
         encrypt: true,
         trustServerCertificate: false,
-      },
-    });
+        port: 3342   // 👈 critical for Managed Instance
+  },
+});
 
     // Define URL to blob
     const backupUrl = `https://${storageAccount}.blob.core.windows.net/${containerName}/${backupFile}`;
