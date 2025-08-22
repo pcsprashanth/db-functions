@@ -51,7 +51,7 @@ module.exports = async function (context, req) {
     // Run COPY_ONLY backup
     const backupSql = `
       BACKUP DATABASE [${dbName}]
-      TO DISK = '${backupUrl}'
+      TO URL = '${backupUrl}'
       WITH COPY_ONLY, COMPRESSION, STATS = 10, CREDENTIAL = '${credentialName}';
     `;
 
