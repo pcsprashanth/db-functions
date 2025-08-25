@@ -2,20 +2,30 @@ const sql = require("mssql");
 
 module.exports = async function (context, req) {
   try {
-    // Parameters
     const dbName = req.query.dbName || req.body?.dbName;
-    const storageAccount = process.env.STORAGE_ACCOUNT; // e.g. mystorageacct
-    const containerName = process.env.STORAGE_CONTAINER; // e.g. backups
-    const sasToken = process.env.STORAGE_SAS; // without leading '?'
-    const backupFile = `${dbName}_${new Date().toISOString().replace(/[:.]/g, "-")}.bak`;
 
     if (!dbName) {
       context.res = {
         status: 400,
-        body: "Missing dbName parameter",
+        body: "❌ Missing dbName parameter",
       };
       return;
     }
+
+    const containerUrl = process.env.STORAGE_CONTAINER_URL; // e.g. https://mystorageacct.blob.core.windows.net/backups
+    const sasToken = process.env.STORAGE_SAS;               // only the SAS token (without leading ?)
+
+    if (!containerUrl || !sasToken) {
+      context.res = {
+        status: 500,
+        body: "❌ Storage configuration is missing. Please set STORAGE_CONTAINER_URL and STORAGE_SAS.",
+      };
+      return;
+    }
+
+    const backupFile = `${dbName}_${new Date().toISOString().replace(/[:.]/g, "-")}.bak`;
+    const backupUrl = `${containerUrl}/${backupFile}`;
+    const credentialName = containerUrl; // must exactly match the container URL
 
     // SQL MI connection
     const pool = await sql.connect({
@@ -26,15 +36,11 @@ module.exports = async function (context, req) {
       options: {
         encrypt: true,
         trustServerCertificate: false,
-        port: 3342   // 👈 critical for Managed Instance
-  },
-});
-
-    // Define URL to blob
-    const backupUrl = `https://${storageAccount}.blob.core.windows.net/${containerName}/${backupFile}`;
+        port: 1433, // ✅ SQL MI default port
+      },
+    });
 
     // Create credential if not exists
-    const credentialName = `https://${storageAccount}.blob.core.windows.net/${containerName}`;
     const createCredentialSql = `
       IF NOT EXISTS (
         SELECT * FROM sys.credentials WHERE name = '${credentialName}'
@@ -45,7 +51,6 @@ module.exports = async function (context, req) {
              SECRET = '${sasToken}';
       END
     `;
-
     await pool.request().batch(createCredentialSql);
 
     // Run COPY_ONLY backup
@@ -55,12 +60,12 @@ module.exports = async function (context, req) {
       WITH COPY_ONLY, COMPRESSION, STATS = 10, CREDENTIAL = '${credentialName}';
     `;
 
-    context.log(`Running backup for database [${dbName}] -> ${backupUrl}`);
+    context.log(`📦 Running backup for database [${dbName}] -> ${backupUrl}`);
     await pool.request().batch(backupSql);
 
     context.res = {
       status: 200,
-      body: `✅ Backup completed successfully. File: ${backupUrl}`,
+      body: `✅ Backup completed successfully.\nFile: ${backupUrl}`,
     };
   } catch (err) {
     context.log.error("❌ Backup failed", err);
